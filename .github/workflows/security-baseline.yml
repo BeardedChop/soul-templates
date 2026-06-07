@@ -1,0 +1,51 @@
+name: Security Baseline
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  security-baseline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Block obvious secret files
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find . \
+            -path ./.git -prune -o \
+            -path '*/node_modules' -prune -o \
+            -type f \( \
+              -name '.env' -o \
+              -name '.env.*' -o \
+              -name '*.pem' -o \
+              -name '*.key' -o \
+              -name 'id_rsa' -o \
+              -name 'id_ed25519' \
+            \) -print | grep .; then
+            echo "Potential secret file committed. Remove it before merging."
+            exit 1
+          fi
+
+      - name: Audit npm lockfiles
+        shell: bash
+        run: |
+          set -euo pipefail
+          found=0
+          while IFS= read -r -d '' lockfile; do
+            found=1
+            dir="$(dirname "$lockfile")"
+            echo "Auditing $dir"
+            (cd "$dir" && npm audit --audit-level=high)
+          done < <(find . -path '*/node_modules' -prune -o -name package-lock.json -print0)
+          if [ "$found" -eq 0 ]; then
+            echo "No npm lockfiles found."
+          fi
